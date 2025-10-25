@@ -1,13 +1,15 @@
 const http = require("http");
 const WebSocket = require("ws");
 
-// HTTP server for public hosting
+// HTTP server required for public hosting
 const server = http.createServer((req, res) => {
     res.writeHead(200);
     res.end("WebSocket server running");
 });
 
 const wss = new WebSocket.Server({ server });
+
+// Connected Roblox clients
 const connectedClients = {};
 
 wss.on("connection", (ws) => {
@@ -24,16 +26,11 @@ wss.on("connection", (ws) => {
 
     ws.on("message", (rawMsg) => {
         let msg;
-        try { 
-            msg = JSON.parse(rawMsg); 
-        } catch {
+        try { msg = JSON.parse(rawMsg); } catch {
             return ws.send(JSON.stringify({ error: "Invalid JSON" }));
         }
 
-        // Ensure command and data exist
-        const command = msg.command;
-        const adminKey = msg.adminKey;
-        const data = msg.data && typeof msg.data === "object" ? msg.data : {};
+        const { command, data, adminKey } = msg;
 
         // --- Admin authentication ---
         if (!ws.meta.isAdmin && adminKey === "SECRET_ADMIN_KEY") {
@@ -45,7 +42,8 @@ wss.on("connection", (ws) => {
 
         // --- Admin commands ---
         if (ws.meta.isAdmin) {
-            console.log(`📝 Admin command: ${command}`, data);
+            const logPrefix = `📝 Admin command: ${command}`;
+            console.log(logPrefix, data);
 
             switch (command) {
                 case "kick": sendCommandToClient(data, "kick"); break;
@@ -61,12 +59,7 @@ wss.on("connection", (ws) => {
                         for (const jobId in connectedClients[placeId]) {
                             for (const userId in connectedClients[placeId][jobId]) {
                                 const c = connectedClients[placeId][jobId][userId];
-                                clients.push({
-                                    Username: c.Username,
-                                    UserId: parseInt(userId),
-                                    PlaceId: placeId,
-                                    JobId: jobId
-                                });
+                                clients.push({ Username: c.Username, UserId: parseInt(userId), PlaceId: placeId, JobId: jobId });
                             }
                         }
                     }
@@ -112,34 +105,22 @@ wss.on("connection", (ws) => {
     });
 });
 
-// --- Send command to matching client(s) ---
-function sendCommandToClient(data = {}, cmd) {
-    if (!data || typeof data !== "object") data = {};
-
+// Send command to matching client(s)
+function sendCommandToClient(data, cmd) {
     for (const placeId in connectedClients) {
         for (const jobId in connectedClients[placeId]) {
             for (const userId in connectedClients[placeId][jobId]) {
                 const client = connectedClients[placeId][jobId][userId];
-
-                const targetUserId = data.targetUserId;
-                const targetUsername = data.targetUsername ? data.targetUsername.toLowerCase() : null;
-
-                if (
-                    (!targetUserId || parseInt(userId) === targetUserId) &&
-                    (!targetUsername || client.Username.toLowerCase() === targetUsername)
-                ) {
-                    // Always send a command object with args: {}
-                    client.ws.send(JSON.stringify({
-                        command: cmd,
-                        args: data || {}
-                    }));
+                if ((!data.targetUserId || parseInt(userId) === data.targetUserId) &&
+                    (!data.targetUsername || client.Username.toLowerCase() === data.targetUsername.toLowerCase())) {
+                        client.ws.send(JSON.stringify({ command: cmd, args: data }));
                 }
             }
         }
     }
 }
 
-// --- Heartbeat check ---
+// Heartbeat check: disconnect clients if no ping for 10s
 setInterval(() => {
     const now = Date.now();
     for (const client of wss.clients) {
@@ -154,7 +135,7 @@ setInterval(() => {
     }
 }, 5000);
 
-// --- Remove client ---
+// Remove client from connectedClients table
 function removeClient(ws) {
     const { PlaceId, JobId, UserId, Username } = ws.meta;
     if (PlaceId && JobId && UserId && connectedClients[PlaceId]?.[JobId]) {
@@ -167,6 +148,6 @@ function removeClient(ws) {
     }
 }
 
-// --- Start server ---
+// Start server
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`🚀 WebSocket server running on port ${PORT}`));
