@@ -30,7 +30,7 @@ wss.on("connection", (ws) => {
             return ws.send(JSON.stringify({ error: "Invalid JSON" }));
         }
 
-        const { PlaceId, JobId, UserId, Username, command, data, adminKey } = msg;
+        const { command, data, adminKey } = msg;
 
         // Admin authentication
         if (adminKey === "SECRET_ADMIN_KEY") {
@@ -41,7 +41,10 @@ wss.on("connection", (ws) => {
         }
 
         // Roblox client registration
-        if (PlaceId && JobId && UserId && Username) {
+        if (command === "RegisterClient") {
+            const { PlaceId, JobId, UserId, Username } = data;
+            if (!PlaceId || !JobId || !UserId || !Username) return;
+
             ws.meta.PlaceId = PlaceId;
             ws.meta.JobId = JobId;
             ws.meta.UserId = UserId;
@@ -52,14 +55,19 @@ wss.on("connection", (ws) => {
             connectedClients[PlaceId][JobId][UserId] = { Username, ws };
 
             console.log(`📌 Registered client: ${Username} (UserId: ${UserId}) in Place ${PlaceId}, Job ${JobId}`);
+            ws.send(JSON.stringify({ response: "Client registered successfully" }));
+            return;
         }
 
-        // Commands
+        // Heartbeat
         if (command === "ping") {
             ws.meta.lastPing = Date.now();
             ws.send(JSON.stringify({ response: "pong" }));
-        } 
-        else if (ws.meta.isAdmin && command === "kick") {
+            return;
+        }
+
+        // Admin kick command
+        if (ws.meta.isAdmin && command === "kick") {
             console.log("📝 Admin kick command received:", data);
 
             const targetName = data.targetUsername;
@@ -88,6 +96,7 @@ wss.on("connection", (ws) => {
             ws.send(JSON.stringify({
                 response: found ? `Kicked ${targetName || targetId}` : `Client ${targetName || targetId} not found`
             }));
+            return;
         }
     });
 
@@ -100,7 +109,7 @@ wss.on("connection", (ws) => {
     });
 });
 
-// Heartbeat system
+// Heartbeat check: disconnect clients if no ping for 10s
 setInterval(() => {
     const now = Date.now();
     for (const client of wss.clients) {
