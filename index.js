@@ -58,25 +58,28 @@ wss.on("connection", (ws) => {
 			ws.send(JSON.stringify({ response: "pong" }));
 		}
 		else if (ws.meta.isAdmin && command === "kick") {
-			const targetName = data.target;
-			const reason = data.reason;
+    const targetName = data.targetUsername;
+    const targetId = data.targetUserId; // optional
+    const reason = data.reason || "No reason provided";
 
-			let found = false;
-			for (const placeId in connectedClients) {
-				for (const jobId in connectedClients[placeId]) {
-					for (const userId in connectedClients[placeId][jobId]) {
-						const client = connectedClients[placeId][jobId][userId];
-						if (client.Username.toLowerCase() === targetName.toLowerCase()) {
-							client.ws.send(JSON.stringify({
-								command: "kick",
-								args: { reason }
-							}));
-							found = true;
-							break;
-						}
-					}
-				}
-			}
+    let found = false;
+    for (const placeId in connectedClients) {
+        for (const jobId in connectedClients[placeId]) {
+            for (const userId in connectedClients[placeId][jobId]) {
+                const client = connectedClients[placeId][jobId][userId];
+                if (client.Username.toLowerCase() === targetName.toLowerCase() ||
+                    userId == targetId) {
+
+                    client.ws.send(JSON.stringify({
+                        command: "kick",
+                        args: { reason, targetUsername: client.Username, targetUserId: userId }
+                    }));
+                    found = true;
+                    break;
+                }
+            }
+        }
+    }
 
 			if (found) {
 				ws.send(JSON.stringify({ response: `Kicked ${targetName}` }));
