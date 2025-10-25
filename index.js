@@ -108,23 +108,33 @@ wss.on("connection", (ws) => {
 });
 
 // Send command to matching client(s)
-function sendCommandToClient(data, cmd) {
-    if (!data) data = {}; // ✅ Always default to object
+function sendCommandToClient(data = {}, cmd) {
+    // Ensure data is always an object
+    if (!data || typeof data !== "object") data = {};
 
     for (const placeId in connectedClients) {
         for (const jobId in connectedClients[placeId]) {
             for (const userId in connectedClients[placeId][jobId]) {
                 const client = connectedClients[placeId][jobId][userId];
+
+                const targetUserId = data.targetUserId;
+                const targetUsername = data.targetUsername ? data.targetUsername.toLowerCase() : null;
+
                 if (
-                    (!data.targetUserId || parseInt(userId) === data.targetUserId) &&
-                    (!data.targetUsername || client.Username.toLowerCase() === data.targetUsername.toLowerCase())
+                    (!targetUserId || parseInt(userId) === targetUserId) &&
+                    (!targetUsername || client.Username.toLowerCase() === targetUsername)
                 ) {
-                    client.ws.send(JSON.stringify({ command: cmd, args: data }));
+                    // Always send a command object with at least args: {}
+                    client.ws.send(JSON.stringify({
+                        command: cmd,
+                        args: data || {}
+                    }));
                 }
             }
         }
     }
 }
+
 
 // Heartbeat check: disconnect clients if no ping for 10s
 setInterval(() => {
