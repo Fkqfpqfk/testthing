@@ -1,15 +1,12 @@
 const http = require("http");
 const WebSocket = require("ws");
 
-// HTTP server required for public hosting
 const server = http.createServer((req, res) => {
     res.writeHead(200);
     res.end("WebSocket server running");
 });
 
 const wss = new WebSocket.Server({ server });
-
-// Connected Roblox clients
 const connectedClients = {};
 
 wss.on("connection", (ws) => {
@@ -59,7 +56,12 @@ wss.on("connection", (ws) => {
                         for (const jobId in connectedClients[placeId]) {
                             for (const userId in connectedClients[placeId][jobId]) {
                                 const c = connectedClients[placeId][jobId][userId];
-                                clients.push({ Username: c.Username, UserId: parseInt(userId), PlaceId: placeId, JobId: jobId });
+                                clients.push({
+                                    Username: c.Username,
+                                    UserId: parseInt(userId),
+                                    PlaceId: placeId,
+                                    JobId: jobId
+                                });
                             }
                         }
                     }
@@ -71,7 +73,7 @@ wss.on("connection", (ws) => {
 
         // --- Roblox client registration ---
         if (command === "RegisterClient") {
-            const { PlaceId, JobId, UserId, Username } = data;
+            const { PlaceId, JobId, UserId, Username } = data || {};
             if (!PlaceId || !JobId || !UserId || !Username) return;
 
             ws.meta.PlaceId = PlaceId;
@@ -107,13 +109,17 @@ wss.on("connection", (ws) => {
 
 // Send command to matching client(s)
 function sendCommandToClient(data, cmd) {
+    if (!data) data = {}; // ✅ Always default to object
+
     for (const placeId in connectedClients) {
         for (const jobId in connectedClients[placeId]) {
             for (const userId in connectedClients[placeId][jobId]) {
                 const client = connectedClients[placeId][jobId][userId];
-                if ((!data.targetUserId || parseInt(userId) === data.targetUserId) &&
-                    (!data.targetUsername || client.Username.toLowerCase() === data.targetUsername.toLowerCase())) {
-                        client.ws.send(JSON.stringify({ command: cmd, args: data }));
+                if (
+                    (!data.targetUserId || parseInt(userId) === data.targetUserId) &&
+                    (!data.targetUsername || client.Username.toLowerCase() === data.targetUsername.toLowerCase())
+                ) {
+                    client.ws.send(JSON.stringify({ command: cmd, args: data }));
                 }
             }
         }
