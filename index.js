@@ -1,13 +1,12 @@
 const http = require("http");
 const WebSocket = require("ws");
 
-// Create HTTP server (required for public hosting)
+// HTTP server required for public hosting
 const server = http.createServer((req, res) => {
     res.writeHead(200);
     res.end("WebSocket server running");
 });
 
-// WebSocket server
 const wss = new WebSocket.Server({ server });
 
 // Connected Roblox clients
@@ -27,9 +26,7 @@ wss.on("connection", (ws) => {
 
     ws.on("message", (rawMsg) => {
         let msg;
-        try { 
-            msg = JSON.parse(rawMsg); 
-        } catch {
+        try { msg = JSON.parse(rawMsg); } catch {
             return ws.send(JSON.stringify({ error: "Invalid JSON" }));
         }
 
@@ -45,49 +42,31 @@ wss.on("connection", (ws) => {
 
         // --- Admin commands ---
         if (ws.meta.isAdmin) {
-            if (command === "kick") {
-                console.log("📝 Admin kick command received:", data);
+            const logPrefix = `📝 Admin command: ${command}`;
+            console.log(logPrefix, data);
 
-                const targetName = data.targetUsername;
-                const targetId = data.targetUserId;
-                const reason = data.reason || "No reason provided";
-                let found = false;
-
-                for (const placeId in connectedClients) {
-                    for (const jobId in connectedClients[placeId]) {
-                        for (const userId in connectedClients[placeId][jobId]) {
-                            const client = connectedClients[placeId][jobId][userId];
-                            if (
-                                (targetName && client.Username.toLowerCase() === targetName.toLowerCase()) ||
-                                (targetId && parseInt(userId) === targetId)
-                            ) {
-                                client.ws.send(JSON.stringify({
-                                    command: "kick",
-                                    args: { reason, targetUsername: client.Username, targetUserId: userId }
-                                }));
-                                found = true;
+            switch (command) {
+                case "kick": sendCommandToClient(data, "kick"); break;
+                case "broadcast": sendCommandToClient(data, "broadcast"); break;
+                case "teleport": sendCommandToClient(data, "teleport"); break;
+                case "playEmote": sendCommandToClient(data, "playEmote"); break;
+                case "freeze": sendCommandToClient(data, "freeze"); break;
+                case "unfreeze": sendCommandToClient(data, "unfreeze"); break;
+                case "kill": sendCommandToClient(data, "kill"); break;
+                case "listClients":
+                    const clients = [];
+                    for (const placeId in connectedClients) {
+                        for (const jobId in connectedClients[placeId]) {
+                            for (const userId in connectedClients[placeId][jobId]) {
+                                const c = connectedClients[placeId][jobId][userId];
+                                clients.push({ Username: c.Username, UserId: parseInt(userId), PlaceId: placeId, JobId: jobId });
                             }
                         }
                     }
-                }
-
-                ws.send(JSON.stringify({
-                    response: found ? `Kicked ${targetName || targetId}` : `Client ${targetName || targetId} not found`
-                }));
+                    ws.send(JSON.stringify({ clients }));
+                    break;
             }
-            else if (command === "listClients") {
-                const clients = [];
-                for (const placeId in connectedClients) {
-                    for (const jobId in connectedClients[placeId]) {
-                        for (const userId in connectedClients[placeId][jobId]) {
-                            const c = connectedClients[placeId][jobId][userId];
-                            clients.push({ Username: c.Username, UserId: parseInt(userId), PlaceId: placeId, JobId: jobId });
-                        }
-                    }
-                }
-                ws.send(JSON.stringify({ clients }));
-            }
-            return; // Done processing admin commands
+            return;
         }
 
         // --- Roblox client registration ---
@@ -125,6 +104,21 @@ wss.on("connection", (ws) => {
         }
     });
 });
+
+// Send command to matching client(s)
+function sendCommandToClient(data, cmd) {
+    for (const placeId in connectedClients) {
+        for (const jobId in connectedClients[placeId]) {
+            for (const userId in connectedClients[placeId][jobId]) {
+                const client = connectedClients[placeId][jobId][userId];
+                if ((!data.targetUserId || parseInt(userId) === data.targetUserId) &&
+                    (!data.targetUsername || client.Username.toLowerCase() === data.targetUsername.toLowerCase())) {
+                        client.ws.send(JSON.stringify({ command: cmd, args: data }));
+                }
+            }
+        }
+    }
+}
 
 // Heartbeat check: disconnect clients if no ping for 10s
 setInterval(() => {
