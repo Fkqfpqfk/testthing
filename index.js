@@ -1,6 +1,7 @@
 const http = require("http");
 const WebSocket = require("ws");
 
+// HTTP server for public hosting
 const server = http.createServer((req, res) => {
     res.writeHead(200);
     res.end("WebSocket server running");
@@ -23,11 +24,16 @@ wss.on("connection", (ws) => {
 
     ws.on("message", (rawMsg) => {
         let msg;
-        try { msg = JSON.parse(rawMsg); } catch {
+        try { 
+            msg = JSON.parse(rawMsg); 
+        } catch {
             return ws.send(JSON.stringify({ error: "Invalid JSON" }));
         }
 
-        const { command, data, adminKey } = msg;
+        // Ensure command and data exist
+        const command = msg.command;
+        const adminKey = msg.adminKey;
+        const data = msg.data && typeof msg.data === "object" ? msg.data : {};
 
         // --- Admin authentication ---
         if (!ws.meta.isAdmin && adminKey === "SECRET_ADMIN_KEY") {
@@ -39,8 +45,7 @@ wss.on("connection", (ws) => {
 
         // --- Admin commands ---
         if (ws.meta.isAdmin) {
-            const logPrefix = `📝 Admin command: ${command}`;
-            console.log(logPrefix, data);
+            console.log(`📝 Admin command: ${command}`, data);
 
             switch (command) {
                 case "kick": sendCommandToClient(data, "kick"); break;
@@ -73,7 +78,7 @@ wss.on("connection", (ws) => {
 
         // --- Roblox client registration ---
         if (command === "RegisterClient") {
-            const { PlaceId, JobId, UserId, Username } = data || {};
+            const { PlaceId, JobId, UserId, Username } = data;
             if (!PlaceId || !JobId || !UserId || !Username) return;
 
             ws.meta.PlaceId = PlaceId;
@@ -107,9 +112,8 @@ wss.on("connection", (ws) => {
     });
 });
 
-// Send command to matching client(s)
+// --- Send command to matching client(s) ---
 function sendCommandToClient(data = {}, cmd) {
-    // Ensure data is always an object
     if (!data || typeof data !== "object") data = {};
 
     for (const placeId in connectedClients) {
@@ -124,7 +128,7 @@ function sendCommandToClient(data = {}, cmd) {
                     (!targetUserId || parseInt(userId) === targetUserId) &&
                     (!targetUsername || client.Username.toLowerCase() === targetUsername)
                 ) {
-                    // Always send a command object with at least args: {}
+                    // Always send a command object with args: {}
                     client.ws.send(JSON.stringify({
                         command: cmd,
                         args: data || {}
@@ -135,8 +139,7 @@ function sendCommandToClient(data = {}, cmd) {
     }
 }
 
-
-// Heartbeat check: disconnect clients if no ping for 10s
+// --- Heartbeat check ---
 setInterval(() => {
     const now = Date.now();
     for (const client of wss.clients) {
@@ -151,7 +154,7 @@ setInterval(() => {
     }
 }, 5000);
 
-// Remove client from connectedClients table
+// --- Remove client ---
 function removeClient(ws) {
     const { PlaceId, JobId, UserId, Username } = ws.meta;
     if (PlaceId && JobId && UserId && connectedClients[PlaceId]?.[JobId]) {
@@ -164,6 +167,6 @@ function removeClient(ws) {
     }
 }
 
-// Start server
+// --- Start server ---
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`🚀 WebSocket server running on port ${PORT}`));
