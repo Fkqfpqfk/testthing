@@ -1,13 +1,16 @@
 const http = require("http");
 const WebSocket = require("ws");
 
+// Create HTTP server (required for public hosting)
 const server = http.createServer((req, res) => {
     res.writeHead(200);
     res.end("WebSocket server running");
 });
 
+// WebSocket server
 const wss = new WebSocket.Server({ server });
 
+// Connected Roblox clients
 const connectedClients = {};
 
 wss.on("connection", (ws) => {
@@ -24,23 +27,70 @@ wss.on("connection", (ws) => {
 
     ws.on("message", (rawMsg) => {
         let msg;
-        try {
-            msg = JSON.parse(rawMsg);
+        try { 
+            msg = JSON.parse(rawMsg); 
         } catch {
             return ws.send(JSON.stringify({ error: "Invalid JSON" }));
         }
 
         const { command, data, adminKey } = msg;
 
-        // Admin authentication
-        if (adminKey === "SECRET_ADMIN_KEY") {
+        // --- Admin authentication ---
+        if (!ws.meta.isAdmin && adminKey === "SECRET_ADMIN_KEY") {
             ws.meta.isAdmin = true;
             ws.send(JSON.stringify({ response: "Admin authenticated" }));
             console.log("👨‍💻 Admin client connected");
             return;
         }
 
-        // Roblox client registration
+        // --- Admin commands ---
+        if (ws.meta.isAdmin) {
+            if (command === "kick") {
+                console.log("📝 Admin kick command received:", data);
+
+                const targetName = data.targetUsername;
+                const targetId = data.targetUserId;
+                const reason = data.reason || "No reason provided";
+                let found = false;
+
+                for (const placeId in connectedClients) {
+                    for (const jobId in connectedClients[placeId]) {
+                        for (const userId in connectedClients[placeId][jobId]) {
+                            const client = connectedClients[placeId][jobId][userId];
+                            if (
+                                (targetName && client.Username.toLowerCase() === targetName.toLowerCase()) ||
+                                (targetId && parseInt(userId) === targetId)
+                            ) {
+                                client.ws.send(JSON.stringify({
+                                    command: "kick",
+                                    args: { reason, targetUsername: client.Username, targetUserId: userId }
+                                }));
+                                found = true;
+                            }
+                        }
+                    }
+                }
+
+                ws.send(JSON.stringify({
+                    response: found ? `Kicked ${targetName || targetId}` : `Client ${targetName || targetId} not found`
+                }));
+            }
+            else if (command === "listClients") {
+                const clients = [];
+                for (const placeId in connectedClients) {
+                    for (const jobId in connectedClients[placeId]) {
+                        for (const userId in connectedClients[placeId][jobId]) {
+                            const c = connectedClients[placeId][jobId][userId];
+                            clients.push({ Username: c.Username, UserId: parseInt(userId), PlaceId: placeId, JobId: jobId });
+                        }
+                    }
+                }
+                ws.send(JSON.stringify({ clients }));
+            }
+            return; // Done processing admin commands
+        }
+
+        // --- Roblox client registration ---
         if (command === "RegisterClient") {
             const { PlaceId, JobId, UserId, Username } = data;
             if (!PlaceId || !JobId || !UserId || !Username) return;
@@ -59,43 +109,10 @@ wss.on("connection", (ws) => {
             return;
         }
 
-        // Heartbeat
+        // --- Heartbeat ping ---
         if (command === "ping") {
             ws.meta.lastPing = Date.now();
             ws.send(JSON.stringify({ response: "pong" }));
-            return;
-        }
-
-        // Admin kick command
-        if (ws.meta.isAdmin && command === "kick") {
-            console.log("📝 Admin kick command received:", data);
-
-            const targetName = data.targetUsername;
-            const targetId = data.targetUserId;
-            const reason = data.reason || "No reason provided";
-
-            let found = false;
-            for (const placeId in connectedClients) {
-                for (const jobId in connectedClients[placeId]) {
-                    for (const userId in connectedClients[placeId][jobId]) {
-                        const client = connectedClients[placeId][jobId][userId];
-                        if (
-                            (targetName && client.Username.toLowerCase() === targetName.toLowerCase()) ||
-                            (targetId && parseInt(userId) === targetId)
-                        ) {
-                            client.ws.send(JSON.stringify({
-                                command: "kick",
-                                args: { reason, targetUsername: client.Username, targetUserId: userId }
-                            }));
-                            found = true;
-                        }
-                    }
-                }
-            }
-
-            ws.send(JSON.stringify({
-                response: found ? `Kicked ${targetName || targetId}` : `Client ${targetName || targetId} not found`
-            }));
             return;
         }
     });
@@ -124,6 +141,7 @@ setInterval(() => {
     }
 }, 5000);
 
+// Remove client from connectedClients table
 function removeClient(ws) {
     const { PlaceId, JobId, UserId, Username } = ws.meta;
     if (PlaceId && JobId && UserId && connectedClients[PlaceId]?.[JobId]) {
@@ -136,5 +154,6 @@ function removeClient(ws) {
     }
 }
 
+// Start server
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`🚀 WebSocket server running on port ${PORT}`));
